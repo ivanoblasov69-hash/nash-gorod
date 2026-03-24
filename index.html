@@ -1,101 +1,128 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <title>Портал Наш Город</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            background-color: #f0f2f5;
-        }
-        header {
-            background-color: #2c3e50;
-            color: white;
-            padding: 20px;
-            text-align: center;
-        }
-        nav {
-            background-color: #34495e;
-            display: flex;
-            justify-content: center;
-        }
-        nav a {
-            color: white;
-            padding: 15px 25px;
-            text-decoration: none;
-            display: block;
-        }
-        nav a:hover {
-            background-color: #1abc9c;
-        }
-        main {
-            padding: 20px;
-            max-width: 1000px;
-            margin: auto;
-        }
-        .section {
-            background: white;
-            margin-bottom: 20px;
-            padding: 20px;
-            border-radius: 10px;
-        }
-        footer {
-            background-color: #2c3e50;
-            color: white;
-            text-align: center;
-            padding: 15px;
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Наш Город — Жалобы</title>
+
+<style>
+body {
+    margin: 0;
+    font-family: Arial;
+    background: #f4f6f9;
+}
+
+header {
+    background: #2c3e50;
+    color: white;
+    text-align: center;
+    padding: 25px;
+}
+
+.container {
+    max-width: 900px;
+    margin: auto;
+    padding: 20px;
+}
+
+.card {
+    background: white;
+    padding: 20px;
+    margin-bottom: 20px;
+    border-radius: 10px;
+}
+
+input, textarea, select {
+    width: 100%;
+    padding: 10px;
+    margin: 10px 0;
+}
+
+button {
+    background: #1abc9c;
+    color: white;
+    padding: 10px 15px;
+    border: none;
+    cursor: pointer;
+}
+
+.complaint {
+    border-left: 5px solid #1abc9c;
+    margin-top: 10px;
+    padding: 10px;
+    background: #fafafa;
+}
+</style>
 </head>
+
 <body>
 
 <header>
-    <h1>Портал Наш Город</h1>
-    <p>Новости, события и информация о нашем городе</p>
+    <h1>Портал жалоб — Наш Город</h1>
 </header>
 
-<nav>
-    <a href="#news">Новости</a>
-    <a href="#events">События</a>
-    <a href="#places">Достопримечательности</a>
-    <a href="#contacts">Контакты</a>
-</nav>
+<div class="container">
 
-<main>
-    <div class="section" id="news">
-        <h2>Новости</h2>
-        <p>Последние новости нашего города...</p>
-    </div>
+<div class="card">
+    <h2>Оставить жалобу</h2>
 
-    <div class="section" id="events">
-        <h2>События</h2>
-        <ul>
-            <li>Фестиваль музыки — 5 апреля</li>
-            <li>Выставка художников — 12 апреля</li>
-            <li>Городской субботник — 20 апреля</li>
-        </ul>
-    </div>
+    <input type="text" id="name" placeholder="Ваше имя">
+    
+    <select id="category">
+        <option>Дороги</option>
+        <option>Мусор</option>
+        <option>Освещение</option>
+        <option>Другое</option>
+    </select>
 
-    <div class="section" id="places">
-        <h2>Достопримечательности</h2>
-        <ul>
-            <li>Парк Центральный</li>
-            <li>Музей истории города</li>
-            <li>Старый мост через реку</li>
-        </ul>
-    </div>
+    <textarea id="text" placeholder="Опишите проблему"></textarea>
 
-    <div class="section" id="contacts">
-        <h2>Контакты</h2>
-        <p>Email: info@nashgorod.ru</p>
-        <p>Телефон: +7 123 456 78 90</p>
-    </div>
-</main>
+    <button onclick="addComplaint()">Отправить</button>
+</div>
 
-<footer>
-    &copy; 2026 Портал Наш Город. Все права защищены.
-</footer>
+<div class="card">
+    <h2>Жалобы</h2>
+    <div id="list"></div>
+</div>
+
+</div>
+
+<script>
+let complaints = JSON.parse(localStorage.getItem("complaints")) || [];
+
+function render() {
+    let list = document.getElementById("list");
+    list.innerHTML = "";
+
+    complaints.forEach(c => {
+        list.innerHTML += `
+        <div class="complaint">
+            <strong>${c.name}</strong> (${c.category})<br>
+            ${c.text}
+        </div>
+        `;
+    });
+}
+
+function addComplaint() {
+    let name = document.getElementById("name").value;
+    let category = document.getElementById("category").value;
+    let text = document.getElementById("text").value;
+
+    if (!text) {
+        alert("Напишите жалобу!");
+        return;
+    }
+
+    complaints.push({name, category, text});
+    localStorage.setItem("complaints", JSON.stringify(complaints));
+
+    document.getElementById("text").value = "";
+    render();
+}
+
+render();
+</script>
 
 </body>
 </html>
