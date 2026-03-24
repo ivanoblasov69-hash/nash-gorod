@@ -52,6 +52,11 @@ button {
     padding: 10px;
     background: #fafafa;
 }
+
+img {
+    max-width: 100%;
+    margin-top: 10px;
+}
 </style>
 </head>
 
@@ -67,15 +72,21 @@ button {
     <h2>Оставить жалобу</h2>
 
     <input type="text" id="name" placeholder="Ваше имя">
+
+    <input type="text" id="address" placeholder="Адрес">
     
     <select id="category">
         <option>Дороги</option>
         <option>Мусор</option>
         <option>Освещение</option>
+        <option>Дворы</option>
+        <option>Транспорт</option>
         <option>Другое</option>
     </select>
 
     <textarea id="text" placeholder="Опишите проблему"></textarea>
+
+    <input type="file" id="photo">
 
     <button onclick="addComplaint()">Отправить</button>
 </div>
@@ -87,7 +98,22 @@ button {
 
 </div>
 
+<!-- Google Form -->
+<iframe name="hidden_iframe" style="display:none;"></iframe>
+
+<form id="googleForm"
+action="https://docs.google.com/forms/d/e/1FAIpQLSdMijyL4ifha4IZ9jiJHurdkC317Dk772dtZd09KcBR9fAzsQ/formResponse"
+method="POST"
+target="hidden_iframe">
+
+<input type="hidden" name="entry.1947460805" id="form-name">
+<input type="hidden" name="entry.1372373083" id="form-category">
+<input type="hidden" name="entry.1699770815" id="form-text">
+
+</form>
+
 <script>
+
 let complaints = JSON.parse(localStorage.getItem("complaints")) || [];
 
 function render() {
@@ -97,8 +123,11 @@ function render() {
     complaints.forEach(c => {
         list.innerHTML += `
         <div class="complaint">
-            <strong>${c.name}</strong> (${c.category})<br>
+            <strong>${c.name}</strong><br>
+            📍 ${c.address}<br>
+            ${c.category}<br>
             ${c.text}
+            ${c.photo ? <img src="${c.photo}"> : ""}
         </div>
         `;
     });
@@ -108,57 +137,37 @@ function addComplaint() {
     let name = document.getElementById("name").value;
     let category = document.getElementById("category").value;
     let text = document.getElementById("text").value;
+    let address = document.getElementById("address").value;
+
+    let file = document.getElementById("photo").files[0];
+    let photoURL = "";
+
+    if (file) {
+        photoURL = URL.createObjectURL(file);
+    }
 
     if (!text) {
         alert("Напишите жалобу!");
         return;
     }
 
-    complaints.push({name, category, text});
+    document.getElementById("form-name").value = name;
+    document.getElementById("form-category").value = category;
+    document.getElementById("form-text").value = text;
+
+    document.getElementById("googleForm").submit();
+
+    complaints.push({name, category, text, address, photo: photoURL});
     localStorage.setItem("complaints", JSON.stringify(complaints));
 
-    document.getElementById("text").value = "";
     render();
+
+    alert("Жалоба отправлена!");
 }
 
 render();
+
 </script>
 
 </body>
-</html><script>
-
-const GOOGLE_FORM_URL =
-"https://docs.google.com/forms/d/e/1FAIpQLSdXXXXXXX/formResponse";
-
-// ID полей нужно заменить
-const NAME = "entry.111111";
-const CATEGORY = "entry.222222";
-const TEXT = "entry.333333";
-
-function addComplaint() {
-
-    let name = document.getElementById("name").value;
-    let category = document.getElementById("category").value;
-    let text = document.getElementById("text").value;
-
-    if (!text) {
-        alert("Напишите жалобу!");
-        return;
-    }
-
-    let formData = new FormData();
-
-    formData.append(NAME, name);
-    formData.append(CATEGORY, category);
-    formData.append(TEXT, text);
-
-    fetch(GOOGLE_FORM_URL, {
-        method: "POST",
-        mode: "no-cors",
-        body: formData
-    });
-
-    alert("Отправлено!");
-}
-
-</script>
+</html>
