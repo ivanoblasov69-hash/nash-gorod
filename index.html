@@ -3,40 +3,24 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Наш Город</title>
+<title>Наш Город — Жалобы</title>
 
 <style>
 body {
     margin: 0;
-    font-family: Arial, sans-serif;
+    font-family: Arial;
     background: #f4f6f9;
 }
 
 header {
-    background: linear-gradient(90deg, #2c3e50, #1abc9c);
+    background: #2c3e50;
     color: white;
-    padding: 30px;
     text-align: center;
-}
-
-nav {
-    display: flex;
-    justify-content: center;
-    background: #34495e;
-}
-
-nav a {
-    color: white;
-    padding: 15px 20px;
-    text-decoration: none;
-}
-
-nav a:hover {
-    background: #1abc9c;
+    padding: 25px;
 }
 
 .container {
-    max-width: 1100px;
+    max-width: 900px;
     margin: auto;
     padding: 20px;
 }
@@ -48,99 +32,100 @@ nav a:hover {
     border-radius: 10px;
 }
 
-.grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-    gap: 20px;
+input, textarea, select {
+    width: 100%;
+    padding: 10px;
+    margin: 10px 0;
 }
 
-.footer {
-    text-align: center;
-    background: #2c3e50;
-    color: white;
-    padding: 20px;
-}
-
-/* кнопка */
-.btn {
+button {
     background: #1abc9c;
     color: white;
     padding: 10px 15px;
     border: none;
     cursor: pointer;
-    border-radius: 5px;
 }
 
+.complaint {
+    border-left: 5px solid #1abc9c;
+    margin-top: 10px;
+    padding: 10px;
+    background: #fafafa;
+}
 </style>
-
-<script>
-function showMessage() {
-    alert("Спасибо за обращение! Мы получили ваше сообщение.");
-}
-</script>
-
 </head>
 
 <body>
 
 <header>
-    <h1>Портал Наш Город</h1>
-    <p>Новости, события и жизнь города</p>
+    <h1>Портал жалоб — Наш Город</h1>
 </header>
-
-<nav>
-    <a href="#news">Новости</a>
-    <a href="#events">События</a>
-    <a href="#places">Места</a>
-    <a href="#contact">Обращение</a>
-</nav>
 
 <div class="container">
 
-    <div class="card" id="news">
-        <h2>📰 Новости</h2>
-        <p>Открытие нового парка в центре города.</p>
-        <p>Ремонт дорог завершится к концу месяца.</p>
-    </div>
+<div class="card">
+    <h2>Оставить жалобу</h2>
 
-    <div class="card" id="events">
-        <h2>🎉 События</h2>
-        <ul>
-            <li>Фестиваль — 5 апреля</li>
-            <li>Ярмарка — 12 апреля</li>
-            <li>Концерт — 20 апреля</li>
-        </ul>
-    </div>
+    <input type="text" id="name" placeholder="Ваше имя">
+    
+    <select id="category">
+        <option>Дороги</option>
+        <option>Мусор</option>
+        <option>Освещение</option>
+        <option>Другое</option>
+    </select>
 
-    <div class="card" id="places">
-        <h2>📍 Достопримечательности</h2>
-        <div class="grid">
-            <div class="card">
-                <h3>Парк</h3>
-                <p>Лучшее место для прогулок</p>
-            </div>
-            <div class="card">
-                <h3>Музей</h3>
-                <p>История нашего города</p>
-            </div>
-            <div class="card">
-                <h3>Набережная</h3>
-                <p>Красивый вид на реку</p>
-            </div>
+    <textarea id="text" placeholder="Опишите проблему"></textarea>
+
+    <button onclick="addComplaint()">Отправить</button>
+</div>
+
+<div class="card">
+    <h2>Жалобы</h2>
+    <div id="list"></div>
+</div>
+
+</div>
+
+<script>
+let complaints = JSON.parse(localStorage.getItem("complaints")) || [];
+
+function render() {
+    let list = document.getElementById("list");
+    list.innerHTML = "";
+
+    complaints.forEach(c => {
+        list.innerHTML += `
+        <div class="complaint">
+            <strong>${c.name}</strong> (${c.category})<br>
+            ${c.text}
         </div>
-    </div>
+        `;
+    });
+}
 
-    <div class="card" id="contact">
-        <h2>📩 Обращение граждан</h2>
-        <p>Напишите нам:</p>
-        <button class="btn" onclick="showMessage()">Отправить обращение</button>
-    </div>
+function addComplaint() {
+    let name = document.getElementById("name").value;
+    let category = document.getElementById("category").value;
+    let text = document.getElementById("text").value;
 
-</div>
+    if (!text) {
+        alert("Напишите жалобу!");
+        return;
+    }
 
-<div class="footer">
-    © 2026 Наш Город
-</div>
+    complaints.push({name, category, text});
+    localStorage.setItem("complaints", JSON.stringify(complaints));
+
+    document.getElementById("text").value = "";
+    render();
+}
+
+render();
+</script>
+
+</body>
+</html>
 
 </body>
 </html>
