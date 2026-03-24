@@ -2,126 +2,68 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Наш Город — Жалобы</title>
+<title>Наш Город</title>
+
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js"></script>
 
 <style>
-body {
-    margin: 0;
-    font-family: Arial;
-    background: #f4f6f9;
-}
-
-header {
-    background: #2c3e50;
-    color: white;
-    text-align: center;
-    padding: 25px;
-}
-
-.container {
-    max-width: 900px;
-    margin: auto;
-    padding: 20px;
-}
-
-.card {
-    background: white;
-    padding: 20px;
-    margin-bottom: 20px;
-    border-radius: 10px;
-}
-
-input, textarea, select {
-    width: 100%;
-    padding: 10px;
-    margin: 10px 0;
-}
-
-button {
-    background: #1abc9c;
-    color: white;
-    padding: 10px 15px;
-    border: none;
-    cursor: pointer;
-}
-
-.complaint {
-    border-left: 5px solid #1abc9c;
-    margin-top: 10px;
-    padding: 10px;
-    background: #fafafa;
-}
+body { font-family: Arial; background:#f4f6f9; }
+.container { max-width:800px; margin:auto; padding:20px; }
+.card { background:white; padding:20px; margin-bottom:20px; }
 </style>
 </head>
 
 <body>
 
-<header>
-    <h1>Портал жалоб — Наш Город</h1>
-</header>
-
 <div class="container">
 
 <div class="card">
-    <h2>Оставить жалобу</h2>
+<h2>Оставить жалобу</h2>
 
-    <input type="text" id="name" placeholder="Ваше имя">
-    
-    <select id="category">
-        <option>Дороги</option>
-        <option>Мусор</option>
-        <option>Освещение</option>
-        <option>Другое</option>
-    </select>
+<input id="name" placeholder="Имя"><br>
+<input id="category" placeholder="Категория"><br>
+<textarea id="text" placeholder="Жалоба"></textarea><br>
 
-    <textarea id="text" placeholder="Опишите проблему"></textarea>
-
-    <button onclick="addComplaint()">Отправить</button>
+<button onclick="send()">Отправить</button>
 </div>
 
 <div class="card">
-    <h2>Жалобы</h2>
-    <div id="list"></div>
+<h2>Все жалобы</h2>
+<div id="list"></div>
 </div>
 
 </div>
 
 <script>
-let complaints = JSON.parse(localStorage.getItem("complaints")) || [];
+// ВСТАВЬ СЮДА СВОЙ firebaseConfig
+const firebaseConfig = {
+  apiKey: "ТВОЙ",
+  authDomain: "ТВОЙ",
+  projectId: "ТВОЙ"
+};
 
-function render() {
-    let list = document.getElementById("list");
-    list.innerHTML = "";
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
 
-    complaints.forEach(c => {
-        list.innerHTML += `
-        <div class="complaint">
-            <strong>${c.name}</strong> (${c.category})<br>
-            ${c.text}
-        </div>
-        `;
+function send() {
+    db.collection("complaints").add({
+        name: document.getElementById("name").value,
+        category: document.getElementById("category").value,
+        text: document.getElementById("text").value,
+        date: new Date()
     });
 }
 
-function addComplaint() {
-    let name = document.getElementById("name").value;
-    let category = document.getElementById("category").value;
-    let text = document.getElementById("text").value;
-
-    if (!text) {
-        alert("Напишите жалобу!");
-        return;
-    }
-
-    complaints.push({name, category, text});
-    localStorage.setItem("complaints", JSON.stringify(complaints));
-
-    document.getElementById("text").value = "";
-    render();
-}
-
-render();
+db.collection("complaints")
+.onSnapshot(snapshot => {
+    let list = document.getElementById("list");
+    list.innerHTML = "";
+    snapshot.forEach(doc => {
+        let c = doc.data();
+        list.innerHTML += <p><b>${c.name}</b>: ${c.text}</p>;
+    });
+});
 </script>
 
 </body>
