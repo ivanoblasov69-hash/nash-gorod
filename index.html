@@ -1,70 +1,101 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-<meta charset="UTF-8">
-<title>Наш Город</title>
-
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js"></script>
-
-<style>
-body { font-family: Arial; background:#f4f6f9; }
-.container { max-width:800px; margin:auto; padding:20px; }
-.card { background:white; padding:20px; margin-bottom:20px; }
-</style>
+    <meta charset="UTF-8">
+    <title>Портал Наш Город</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            background-color: #f0f2f5;
+        }
+        header {
+            background-color: #2c3e50;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        nav {
+            background-color: #34495e;
+            display: flex;
+            justify-content: center;
+        }
+        nav a {
+            color: white;
+            padding: 15px 25px;
+            text-decoration: none;
+            display: block;
+        }
+        nav a:hover {
+            background-color: #1abc9c;
+        }
+        main {
+            padding: 20px;
+            max-width: 1000px;
+            margin: auto;
+        }
+        .section {
+            background: white;
+            margin-bottom: 20px;
+            padding: 20px;
+            border-radius: 10px;
+        }
+        footer {
+            background-color: #2c3e50;
+            color: white;
+            text-align: center;
+            padding: 15px;
+        }
+    </style>
 </head>
-
 <body>
 
-<div class="container">
+<header>
+    <h1>Портал Наш Город</h1>
+    <p>Новости, события и информация о нашем городе</p>
+</header>
 
-<div class="card">
-<h2>Оставить жалобу</h2>
+<nav>
+    <a href="#news">Новости</a>
+    <a href="#events">События</a>
+    <a href="#places">Достопримечательности</a>
+    <a href="#contacts">Контакты</a>
+</nav>
 
-<input id="name" placeholder="Имя"><br>
-<input id="category" placeholder="Категория"><br>
-<textarea id="text" placeholder="Жалоба"></textarea><br>
+<main>
+    <div class="section" id="news">
+        <h2>Новости</h2>
+        <p>Последние новости нашего города...</p>
+    </div>
 
-<button onclick="send()">Отправить</button>
-</div>
+    <div class="section" id="events">
+        <h2>События</h2>
+        <ul>
+            <li>Фестиваль музыки — 5 апреля</li>
+            <li>Выставка художников — 12 апреля</li>
+            <li>Городской субботник — 20 апреля</li>
+        </ul>
+    </div>
 
-<div class="card">
-<h2>Все жалобы</h2>
-<div id="list"></div>
-</div>
+    <div class="section" id="places">
+        <h2>Достопримечательности</h2>
+        <ul>
+            <li>Парк Центральный</li>
+            <li>Музей истории города</li>
+            <li>Старый мост через реку</li>
+        </ul>
+    </div>
 
-</div>
+    <div class="section" id="contacts">
+        <h2>Контакты</h2>
+        <p>Email: info@nashgorod.ru</p>
+        <p>Телефон: +7 123 456 78 90</p>
+    </div>
+</main>
 
-<script>
-// ВСТАВЬ СЮДА СВОЙ firebaseConfig
-const firebaseConfig = {
-  apiKey: "ТВОЙ",
-  authDomain: "ТВОЙ",
-  projectId: "ТВОЙ"
-};
-
-firebase.initializeApp(firebaseConfig);
-const db = firebase.firestore();
-
-function send() {
-    db.collection("complaints").add({
-        name: document.getElementById("name").value,
-        category: document.getElementById("category").value,
-        text: document.getElementById("text").value,
-        date: new Date()
-    });
-}
-
-db.collection("complaints")
-.onSnapshot(snapshot => {
-    let list = document.getElementById("list");
-    list.innerHTML = "";
-    snapshot.forEach(doc => {
-        let c = doc.data();
-        list.innerHTML += <p><b>${c.name}</b>: ${c.text}</p>;
-    });
-});
-</script>
+<footer>
+    &copy; 2026 Портал Наш Город. Все права защищены.
+</footer>
 
 </body>
 </html>
