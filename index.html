@@ -1,173 +1,652 @@
+<?php
+session_start();
+
+// ================== КОНФИГУРАЦИЯ GOOGLE SHEETS ==================
+// Путь к файлу с ключами сервисного аккаунта (скачать из Google Cloud Console)
+$googleKeyFile = 'service-account-key.json'; // поместите этот файл в ту же папку
+// ID вашей Google таблицы (из ссылки)
+$spreadsheetId = '1Elr3X-BMvsQkhVvNFcJfekFY9-FFI9KKdG-uKgqWDwI';
+// Название листа (по умолчанию 'Лист1', можно переименовать)
+$sheetName = 'Лист1';
+
+// Подключаем библиотеку Google API (требуется Composer)
+require_once 'vendor/autoload.php';
+
+use Google\Client;
+use Google\Service\Sheets;
+
+// Функция для получения клиента Google Sheets
+function getGoogleSheetsClient($keyFile) {
+$client = new Client();
+$client->setAuthConfig($keyFile);
+$client->addScope(Sheets::SPREADSHEETS);
+return new Sheets($client);
+}
+
+// Функция для загрузки всех жалоб из Google Sheets
+function loadComplaintsFromSheet($spreadsheetId, $sheetName) {
+global $googleKeyFile;
+try {
+$service = getGoogleSheetsClient($googleKeyFile);
+$range = $sheetName . '!A:H'; // предполагаем 8 столбцов: ID, имя, адрес, категория, описание, фото (путь или имя), статус, дата
+$response = $service->spreadsheets_values->get($spreadsheetId, $range);
+$values = $response->getValues();
+if (empty($values)) return [];
+
+$complaints = [];
+foreach ($values as $row) {
+// Первая строка может быть заголовком, пропускаем её, если в первой ячейке 'ID'
+if (isset($row[0]) && $row[0] === 'ID') continue;
+$complaints[] = [
+'id' => (int)($row[0] ?? 0),
+'name' => htmlspecialchars($row[1] ?? ''),
+'address' => htmlspecialchars($row[2] ?? ''),
+'category' => htmlspecialchars($row[3] ?? ''),
+'description' => htmlspecialchars($row[4] ?? ''),
+'photo_filename' => $row[5] ?? '',
+'status' => $row[6] ?? 'Новая',
+'created_at' => $row[7] ?? ''
+];
+}
+// Сортируем по ID убыванию (новые сверху)
+usort($complaints, fn($a,$b) => $b['id'] - $a['id']);
+return $complaints;
+} catch (Exception $e) {
+return ['error' => $e->getMessage()];
+}
+}
+
+// Функция для добавления новой жалобы в Google Sheets
+function addComplaintToSheet($spreadsheetId, $sheetName, $complaint) {
+global $googleKeyFile;
+try {
+$service = getGoogleSheetsClient($googleKeyFile);
+// Получаем текущие данные, чтобы определить следующий ID
+$range = $sheetName . '!A:A';
+$response = $service->spreadsheets_values->get($spreadsheetId, $range);
+$ids = $response->getValues();
+$maxId = 0;
+foreach ($ids as $row) {
+if (is_numeric($row[0] ?? 0) && $row[0] != 'ID') {
+$maxId = max($maxId, (int)$row[0]);
+}
+}
+$newId = $maxId + 1;
+$complaint['id'] = $newId;
+
+$rowData = [
+$newId,
+$complaint['name'],
+$complaint['address'],
+$complaint['category'],
+$complaint['description'],
+$complaint['photo_filename'] ?? '',
+$complaint['status'],
+$complaint['created_at']
+];
+$body = new Sheets\ValueRange(['values' => [$rowData]]);
+$params = ['valueInputOption' => 'RAW'];
+$append = $service->spreadsheets_values->append($spreadsheetId, $sheetName . '!A:H', $body, $params);
+return $newId;
+} catch (Exception $e) {
+return false;
+}
+}
+
+// Функция для обновления статуса жалобы
+function updateComplaintStatus($spreadsheetId, $sheetName, $id, $newStatus) {
+global $googleKeyFile;
+try {
+$service = getGoogleSheetsClient($googleKeyFile);
+$range = $sheetName . '!A:H';
+$response = $service->spreadsheets_values->get($spreadsheetId, $range);
+$rows = $response->getValues();
+$rowIndex = null;
+foreach ($rows as $i => $row) {
+if (isset($row[0]) && $row[0] == $id) {
+$rowIndex = $i;
+break;
+}
+}
+if ($rowIndex !== null) {
+// Обновляем статус в колонке G (индекс 6)
+$updateRange = $sheetName . '!G' . ($rowIndex + 1);
+$body = new Sheets\ValueRange(['values' => [[$newStatus]]]);
+$service->spreadsheets_values->update($spreadsheetId, $updateRange, $body, ['valueInputOption' => 'RAW']);
+return true;
+}
+return false;
+} catch (Exception $e) {
+return false;
+}
+}
+
+// Функция для удаления жалобы (очистка строки)
+function deleteComplaintFromSheet($spreadsheetId, $sheetName, $id) {
+global $googleKeyFile;
+try {
+$service = getGoogleSheetsClient($googleKeyFile);
+$range = $sheetName . '!A:H';
+$response = $service->spreadsheets_values->get($spreadsheetId, $range);
+$rows = $response->getValues();
+$rowIndex = null;
+foreach ($rows as $i => $row) {
+if (isset($row[0]) && $row[0] == $id) {
+$rowIndex = $i;
+break;
+}
+}
+if ($rowIndex !== null) {
+// Очищаем строку (можно удалить, но проще затереть данные)
+$clearRange = $sheetName . '!A' . ($rowIndex + 1) . ':H' . ($rowIndex + 1);
+$body = new Sheets\ClearValuesRequest();
+$service->spreadsheets_values->clear($spreadsheetId, $clearRange, $body);
+return true;
+}
+return false;
+} catch (Exception $e) {
+return false;
+}
+}
+
+// ================== ОБРАБОТКА ДЕЙСТВИЙ ==================
+$action = $_GET['action'] ?? 'form';
+$message = '';
+$error = '';
+
+// Переменная для хранения списка жалоб (будет использоваться в админке)
+$complaints = [];
+if (is_file($googleKeyFile)) {
+$complaintsResult = loadComplaintsFromSheet($spreadsheetId, $sheetName);
+if (isset($complaintsResult['error'])) {
+$error = 'Ошибка подключения к Google Sheets: ' . $complaintsResult['error'];
+} else {
+$complaints = $complaintsResult;
+}
+} else {
+$error = 'Файл ключа сервисного аккаунта не найден. Следуйте инструкции.';
+}
+
+// Логин админа (простой, без базы)
+$adminLogin = 'admin';
+$adminPassword = 'CityPortal2024';
+
+// Выход
+if ($action === 'logout') {
+session_destroy();
+header('Location: ?action=form');
+exit;
+}
+
+// Логин (AJAX)
+if ($action === 'admin_login' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+$login = $_POST['login'] ?? '';
+$pass = $_POST['password'] ?? '';
+if ($login === $adminLogin && $pass === $adminPassword) {
+$_SESSION['admin_logged'] = true;
+echo json_encode(['success' => true]);
+} else {
+echo json_encode(['success' => false, 'error' => 'Неверный логин или пароль']);
+}
+exit;
+}
+
+// Получение списка жалоб для админки (AJAX)
+if ($action === 'get_complaints' && isAdmin()) {
+header('Content-Type: application/json');
+echo json_encode($complaints);
+exit;
+}
+
+// Смена статуса (AJAX)
+if ($action === 'change_status' && isAdmin() && isset($_POST['id'], $_POST['status'])) {
+$id = (int)$_POST['id'];
+$status = $_POST['status'];
+$result = updateComplaintStatus($spreadsheetId, $sheetName, $id, $status);
+echo json_encode(['success' => $result]);
+exit;
+}
+
+// Удаление жалобы (AJAX)
+if ($action === 'delete' && isAdmin() && isset($_POST['id'])) {
+$id = (int)$_POST['id'];
+$result = deleteComplaintFromSheet($spreadsheetId, $sheetName, $id);
+echo json_encode(['success' => $result]);
+exit;
+}
+
+// Подача новой жалобы (через обычный POST)
+if ($action === 'submit' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+$name = trim($_POST['name'] ?? '');
+$address = trim($_POST['address'] ?? '');
+$category = trim($_POST['category'] ?? '');
+$desc = trim($_POST['description'] ?? '');
+
+if (!$name || !$address || !$category) {
+$message = 'Заполните имя, адрес и причину!';
+$action = 'form';
+} else {
+// Обработка фото (необязательно)
+$photoFilename = '';
+if (isset($_FILES['photo']) && $_FILES['photo']['error'] === UPLOAD_ERR_OK) {
+$mime = mime_content_type($_FILES['photo']['tmp_name']);
+if (in_array($mime, ['image/jpeg', 'image/png'])) {
+$ext = pathinfo($_FILES['photo']['name'], PATHINFO_EXTENSION);
+$filename = time() . '_' . bin2hex(random_bytes(8)) . '.' . $ext;
+$uploadDir = 'uploads/';
+if (!file_exists($uploadDir)) mkdir($uploadDir, 0777, true);
+$dest = $uploadDir . $filename;
+if (move_uploaded_file($_FILES['photo']['tmp_name'], $dest)) {
+$photoFilename = $filename;
+}
+}
+}
+
+$newComplaint = [
+'name' => htmlspecialchars($name),
+'address' => htmlspecialchars($address),
+'category' => htmlspecialchars($category),
+'description' => htmlspecialchars($desc),
+'photo_filename' => $photoFilename,
+'status' => 'Новая',
+'created_at' => date('Y-m-d H:i:s')
+];
+$newId = addComplaintToSheet($spreadsheetId, $sheetName, $newComplaint);
+if ($newId) {
+$message = "✅ Жалоба №{$newId} принята! Спасибо.";
+} else {
+$message = "❌ Ошибка при сохранении в Google Sheets. Проверьте настройки API.";
+}
+$action = 'form';
+}
+}
+
+function isAdmin() {
+return isset($_SESSION['admin_logged']) && $_SESSION['admin_logged'] === true;
+}
+?>
 <!DOCTYPE html>
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Наш Город — Жалобы</title>
-
+<title>Городской портал жалоб (Google Sheets)</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
 <style>
+* { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Poppins', 'Segoe UI', system-ui, sans-serif; }
 body {
-    margin: 0;
-    font-family: Arial;
-    background: #f4f6f9;
+background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+min-height: 100vh;
+padding: 30px 20px;
 }
-
-header {
-    background: #2c3e50;
-    color: white;
-    text-align: center;
-    padding: 25px;
+.glass-card {
+max-width: 1300px;
+margin: 0 auto;
+background: rgba(255,255,255,0.95);
+backdrop-filter: blur(2px);
+border-radius: 48px;
+padding: 30px 40px;
+box-shadow: 0 25px 50px -12px rgba(0,0,0,0.3);
 }
-
-.container {
-    max-width: 900px;
-    margin: auto;
-    padding: 20px;
+h1 {
+font-size: 2.5rem;
+background: linear-gradient(120deg, #f093fb 0%, #f5576c 100%);
+-webkit-background-clip: text;
+background-clip: text;
+color: transparent;
+margin-bottom: 10px;
+display: inline-block;
 }
-
-.card {
-    background: white;
-    padding: 20px;
-    margin-bottom: 20px;
-    border-radius: 10px;
+h1 i { background: none; color: #f5576c; margin-right: 15px; }
+.sub {
+color: #4a5568;
+margin-bottom: 30px;
+border-left: 4px solid #f5576c;
+padding-left: 15px;
+font-weight: 500;
 }
-
-input, textarea, select {
-    width: 100%;
-    padding: 10px;
-    margin: 10px 0;
+.form-group { margin-bottom: 22px; }
+label { font-weight: 600; color: #2d3748; display: block; margin-bottom: 8px; }
+label i { margin-right: 8px; color: #f5576c; }
+input, select, textarea {
+width: 100%;
+padding: 14px 18px;
+border: 2px solid #e2e8f0;
+border-radius: 28px;
+font-size: 1rem;
+transition: 0.2s;
+background: white;
 }
-
-button {
-    background: #1abc9c;
-    color: white;
-    padding: 10px 15px;
-    border: none;
-    cursor: pointer;
+input:focus, select:focus, textarea:focus {
+border-color: #f5576c;
+outline: none;
+box-shadow: 0 0 0 3px rgba(245,87,108,0.2);
 }
-
-.complaint {
-    border-left: 5px solid #1abc9c;
-    margin-top: 10px;
-    padding: 10px;
-    background: #fafafa;
+button, .btn {
+background: linear-gradient(95deg, #f093fb 0%, #f5576c 100%);
+color: white;
+border: none;
+padding: 12px 28px;
+border-radius: 40px;
+font-size: 1rem;
+font-weight: bold;
+cursor: pointer;
+transition: 0.2s;
+display: inline-flex;
+align-items: center;
+gap: 10px;
+text-decoration: none;
 }
-
-img {
-    max-width: 100%;
-    margin-top: 10px;
+button:hover, .btn:hover {
+transform: translateY(-2px);
+box-shadow: 0 10px 20px -5px rgba(245,87,108,0.5);
+}
+.btn-outline {
+background: transparent;
+border: 2px solid #f5576c;
+color: #f5576c;
+}
+.btn-outline:hover { background: #f5576c; color: white; }
+.message {
+background: #c6f6d5;
+color: #22543d;
+padding: 12px 20px;
+border-radius: 40px;
+margin-bottom: 25px;
+font-weight: 500;
+}
+.error-message {
+background: #fed7d7;
+color: #9b2c2c;
+}
+/* Модальное окно */
+.modal {
+display: none;
+position: fixed;
+z-index: 1000;
+left: 0;
+top: 0;
+width: 100%;
+height: 100%;
+overflow: auto;
+background-color: rgba(0,0,0,0.6);
+backdrop-filter: blur(5px);
+}
+.modal-content {
+background: white;
+margin: 5% auto;
+padding: 20px;
+border-radius: 48px;
+width: 90%;
+max-width: 1200px;
+max-height: 85vh;
+overflow-y: auto;
+position: relative;
+}
+.close {
+color: #aaa;
+float: right;
+font-size: 28px;
+font-weight: bold;
+cursor: pointer;
+}
+.close:hover { color: #f5576c; }
+.complaint-card {
+background: linear-gradient(145deg, #ffffff 0%, #fff5f7 100%);
+border-radius: 32px;
+padding: 20px;
+margin-bottom: 25px;
+box-shadow: 0 8px 20px rgba(0,0,0,0.05);
+border-left: 8px solid #f5576c;
+}
+.status-badge {
+display: inline-block;
+padding: 5px 14px;
+border-radius: 30px;
+font-size: 0.75rem;
+font-weight: bold;
+}
+.status-new { background: #fed7d7; color: #9b2c2c; }
+.status-work { background: #feebc8; color: #9c4221; }
+.status-done { background: #c6f6d5; color: #22543d; }
+.filter-bar {
+display: flex;
+gap: 15px;
+flex-wrap: wrap;
+margin: 25px 0;
+background: #f7fafc;
+padding: 20px;
+border-radius: 48px;
+}
+.filter-bar input, .filter-bar select { width: auto; min-width: 180px; }
+.flex-buttons { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 15px; }
+.photo-preview img, .complaint-card img {
+max-width: 180px;
+border-radius: 24px;
+margin-top: 12px;
+border: 3px solid white;
+box-shadow: 0 5px 12px rgba(0,0,0,0.1);
+}
+footer { text-align: center; margin-top: 40px; color: #718096; }
+@media (max-width: 700px) {
+.glass-card { padding: 20px; }
+h1 { font-size: 1.8rem; }
 }
 </style>
 </head>
-
 <body>
-
-<header>
-    <h1>Портал жалоб — Наш Город</h1>
-</header>
-
-<div class="container">
-
-<div class="card">
-    <h2>Оставить жалобу</h2>
-
-    <input type="text" id="name" placeholder="Ваше имя">
-
-    <input type="text" id="address" placeholder="Адрес">
-    
-    <select id="category">
-        <option>Дороги</option>
-        <option>Мусор</option>
-        <option>Освещение</option>
-        <option>Дворы</option>
-        <option>Транспорт</option>
-        <option>Другое</option>
-    </select>
-
-    <textarea id="text" placeholder="Опишите проблему"></textarea>
-
-    <input type="file" id="photo">
-
-    <button onclick="addComplaint()">Отправить</button>
+<div class="glass-card">
+<div style="text-align: center;">
+<h1><i class="fas fa-city"></i> Наш город — ваш голос</h1>
+<div class="sub"><i class="fas fa-hand-sparkles"></i> Сообщите о проблеме — сделаем город лучше вместе! Фото по желанию.</div>
 </div>
 
-<div class="card">
-    <h2>Жалобы</h2>
-    <div id="list"></div>
+<?php if ($error): ?>
+<div class="message error-message"><i class="fas fa-exclamation-triangle"></i> <?= htmlspecialchars($error) ?></div>
+<?php endif; ?>
+
+<?php if ($message): ?>
+<div class="message"><i class="fas fa-check-circle"></i> <?= htmlspecialchars($message) ?></div>
+<?php endif; ?>
+
+<form method="POST" action="?action=submit" enctype="multipart/form-data">
+<div class="form-group"><label><i class="fas fa-user-astronaut"></i> Ваше имя *</label><input type="text" name="name" required placeholder="Иван Петров"></div>
+<div class="form-group"><label><i class="fas fa-map-pin"></i> Адрес проблемы *</label><input type="text" name="address" required placeholder="ул. Цветочная, д.15"></div>
+<div class="form-group">
+<label><i class="fas fa-exclamation-triangle"></i> Причина / категория *</label>
+<select name="category" required>
+<option value="">-- выберите --</option>
+<option>🚧 Ямы на дорогах</option><option>💡 Неисправное освещение</option>
+<option>🗑️ Мусор на контейнерной площадке</option><option>📢 Незаконная реклама</option>
+<option>🚌 Проблема с транспортом</option><option>💧 ЖКХ (отопление, вода)</option>
+<option>🌳 Озеленение и парки</option><option>🐕 Бездомные животные</option>
+<option>📱 Другое</option>
+</select>
 </div>
-
-</div>
-
-<!-- Google Form -->
-<iframe name="hidden_iframe" style="display:none;"></iframe>
-
-<form id="googleForm"
-action="https://docs.google.com/forms/d/e/1FAIpQLSdMijyL4ifha4IZ9jiJHurdkC317Dk772dtZd09KcBR9fAzsQ/formResponse"
-method="POST"
-target="hidden_iframe">
-
-<input type="hidden" name="entry.1947460805" id="form-name">
-<input type="hidden" name="entry.1372373083" id="form-category">
-<input type="hidden" name="entry.1699770815" id="form-text">
-
+<div class="form-group"><label><i class="fas fa-pen-fancy"></i> Описание проблемы</label><textarea name="description" rows="4" placeholder="Подробно расскажите..."></textarea></div>
+<div class="form-group"><label><i class="fas fa-camera-retro"></i> Фото (jpg/png, необязательно)</label><input type="file" name="photo" accept="image/jpeg,image/png" onchange="previewPhoto(this)"><div id="photoPreview"></div></div>
+<button type="submit"><i class="fas fa-paper-plane"></i> Отправить жалобу</button>
+<button type="button" class="btn btn-outline" id="adminModalBtn"><i class="fas fa-shield-alt"></i> Вход для администратора</button>
 </form>
+<hr>
+<footer>
+<i class="fas fa-database"></i> Данные хранятся в Google Sheets. <a href="https://docs.google.com/spreadsheets/d/<?= $spreadsheetId ?>" target="_blank" style="color:#f5576c;">Открыть таблицу</a>
+</footer>
+</div>
+
+<!-- Модальное окно админки -->
+<div id="adminModal" class="modal">
+<div class="modal-content">
+<span class="close">&times;</span>
+<div id="adminPanelContent">
+<!-- Здесь будет форма входа или панель управления -->
+<div id="loginForm">
+<h2><i class="fas fa-lock"></i> Вход для администратора</h2>
+<div class="form-group"><label>Логин</label><input type="text" id="adminLogin" placeholder="admin"></div>
+<div class="form-group"><label>Пароль</label><input type="password" id="adminPassword" placeholder="CityPortal2024"></div>
+<button id="doLoginBtn"><i class="fas fa-sign-in-alt"></i> Войти</button>
+<div id="loginError" style="color:red; margin-top:10px;"></div>
+</div>
+<div id="adminDashboard" style="display:none;">
+<div class="admin-header">
+<h2><i class="fas fa-tachometer-alt"></i> Панель управления жалобами</h2>
+<button id="logoutBtn" class="btn btn-outline"><i class="fas fa-sign-out-alt"></i> Выйти</button>
+</div>
+<div class="filter-bar">
+<input type="text" id="searchAddressAdmin" placeholder="Поиск по адресу" onkeyup="filterAdminComplaints()">
+<select id="statusFilterAdmin" onchange="filterAdminComplaints()">
+<option value="all">Все статусы</option>
+<option>Новая</option><option>В работе</option><option>Решена</option>
+</select>
+<select id="categoryFilterAdmin" onchange="filterAdminComplaints()">
+<option value="all">Все категории</option>
+</select>
+</div>
+<div id="complaintsListAdmin"></div>
+</div>
+</div>
+</div>
+</div>
 
 <script>
-
-let complaints = JSON.parse(localStorage.getItem("complaints")) || [];
-
-function render() {
-    let list = document.getElementById("list");
-    list.innerHTML = "";
-
-    complaints.forEach(c => {
-        list.innerHTML += `
-        <div class="complaint">
-            <strong>${c.name}</strong><br>
-            📍 ${c.address}<br>
-            ${c.category}<br>
-            ${c.text}
-            ${c.photo ? <img src="${c.photo}"> : ""}
-        </div>
-        `;
-    });
+// Предпросмотр фото
+function previewPhoto(input) {
+const preview = document.getElementById('photoPreview');
+preview.innerHTML = '';
+if (input.files && input.files[0]) {
+const reader = new FileReader();
+reader.onload = e => preview.innerHTML = `<img src="${e.target.result}" style="max-width:180px; border-radius:24px;">`;
+reader.readAsDataURL(input.files[0]);
+}
 }
 
-function addComplaint() {
-    let name = document.getElementById("name").value;
-    let category = document.getElementById("category").value;
-    let text = document.getElementById("text").value;
-    let address = document.getElementById("address").value;
+// Модальное окно
+const modal = document.getElementById('adminModal');
+const btn = document.getElementById('adminModalBtn');
+const span = document.getElementsByClassName('close')[0];
+btn.onclick = () => modal.style.display = 'block';
+span.onclick = () => modal.style.display = 'none';
+window.onclick = (event) => { if (event.target == modal) modal.style.display = 'none'; };
 
-    let file = document.getElementById("photo").files[0];
-    let photoURL = "";
+// Логин админа
+document.getElementById('doLoginBtn')?.addEventListener('click', function() {
+const login = document.getElementById('adminLogin').value;
+const password = document.getElementById('adminPassword').value;
+fetch('?action=admin_login', {
+method: 'POST',
+headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+body: `login=${encodeURIComponent(login)}&password=${encodeURIComponent(password)}`
+}).then(r => r.json()).then(data => {
+if (data.success) {
+document.getElementById('loginForm').style.display = 'none';
+document.getElementById('adminDashboard').style.display = 'block';
+loadAdminComplaints();
+} else {
+document.getElementById('loginError').innerText = data.error || 'Ошибка входа';
+}
+});
+});
 
-    if (file) {
-        photoURL = URL.createObjectURL(file);
-    }
+// Выход
+document.getElementById('logoutBtn')?.addEventListener('click', function() {
+fetch('?action=logout').then(() => {
+location.reload();
+});
+});
 
-    if (!text) {
-        alert("Напишите жалобу!");
-        return;
-    }
-
-    document.getElementById("form-name").value = name;
-    document.getElementById("form-category").value = category;
-    document.getElementById("form-text").value = text;
-
-    document.getElementById("googleForm").submit();
-
-    complaints.push({name, category, text, address, photo: photoURL});
-    localStorage.setItem("complaints", JSON.stringify(complaints));
-
-    render();
-
-    alert("Жалоба отправлена!");
+// Загрузка жалоб в админку
+function loadAdminComplaints() {
+fetch('?action=get_complaints')
+.then(r => r.json())
+.then(data => {
+window.complaintsData = data;
+// Заполнить фильтр категорий
+const cats = [...new Set(data.map(c => c.category))];
+const catSelect = document.getElementById('categoryFilterAdmin');
+catSelect.innerHTML = '<option value="all">Все категории</option>' + cats.map(c => `<option>${c}</option>`).join('');
+renderAdminComplaints(data);
+});
 }
 
-render();
+function renderAdminComplaints(complaints) {
+const container = document.getElementById('complaintsListAdmin');
+if (!complaints.length) {
+container.innerHTML = '<p>Жалоб нет</p>';
+return;
+}
+let html = '';
+complaints.forEach(c => {
+let statusClass = '';
+if (c.status === 'Новая') statusClass = 'status-new';
+else if (c.status === 'В работе') statusClass = 'status-work';
+else statusClass = 'status-done';
 
+let photoHtml = '';
+if (c.photo_filename) {
+photoHtml = `<a href="uploads/${c.photo_filename}" target="_blank"><img src="uploads/${c.photo_filename}" alt="фото"></a>`;
+}
+
+html += `
+<div class="complaint-card" data-address="${c.address.toLowerCase()}" data-status="${c.status}" data-category="${c.category}">
+<div style="display:flex; justify-content:space-between;">
+<strong><i class="fas fa-hashtag"></i> №${c.id}</strong>
+<span class="status-badge ${statusClass}">${c.status}</span>
+</div>
+<p><i class="fas fa-user-circle"></i> <strong>${c.name}</strong> | <i class="fas fa-map-marker-alt"></i> ${c.address}</p>
+<p><i class="fas fa-tag"></i> ${c.category}</p>
+<p><i class="fas fa-comment-dots"></i> ${c.description.replace(/\n/g, '<br>')}</p>
+${photoHtml}
+<p><small><i class="far fa-calendar-alt"></i> ${c.created_at}</small></p>
+<div class="flex-buttons">
+<button class="btn btn-sm" onclick="changeStatus(${c.id}, 'В работу')"><i class="fas fa-spinner"></i> В работу</button>
+<button class="btn btn-sm" onclick="changeStatus(${c.id}, 'Решена')"><i class="fas fa-check-circle"></i> Решена</button>
+<button class="btn btn-sm btn-outline" style="border-color:#c0392b; color:#c0392b;" onclick="deleteComplaint(${c.id})"><i class="fas fa-trash-alt"></i> Удалить</button>
+</div>
+</div>
+`;
+});
+container.innerHTML = html;
+}
+
+function filterAdminComplaints() {
+const search = document.getElementById('searchAddressAdmin').value.toLowerCase();
+const statusVal = document.getElementById('statusFilterAdmin').value;
+const catVal = document.getElementById('categoryFilterAdmin').value;
+const cards = document.querySelectorAll('#complaintsListAdmin .complaint-card');
+cards.forEach(card => {
+const addr = card.getAttribute('data-address') || '';
+const status = card.getAttribute('data-status');
+const cat = card.getAttribute('data-category');
+const addrMatch = addr.includes(search);
+const statusMatch = (statusVal === 'all' || status === statusVal);
+const catMatch = (catVal === 'all' || cat === catVal);
+card.style.display = (addrMatch && statusMatch && catMatch) ? 'block' : 'none';
+});
+}
+
+function changeStatus(id, newStatus) {
+fetch('?action=change_status', {
+method: 'POST',
+headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest'},
+body: `id=${id}&status=${encodeURIComponent(newStatus)}`
+}).then(r=>r.json()).then(data=>{
+if(data.success) loadAdminComplaints();
+else alert('Ошибка изменения статуса');
+});
+}
+
+function deleteComplaint(id) {
+if(confirm('Удалить жалобу навсегда?')) {
+fetch('?action=delete', {
+method: 'POST',
+headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest'},
+body: `id=${id}`
+}).then(r=>r.json()).then(data=>{
+if(data.success) loadAdminComplaints();
+else alert('Ошибка удаления');
+});
+}
+}
 </script>
-
 </body>
 </html>
