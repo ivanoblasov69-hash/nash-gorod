@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Запись на груминг | VK</title>
+    <!-- VKUI (библиотека компонентов ВКонтакте) + адаптив -->
+    <link rel="stylesheet" href="https://unpkg.com/@vkontakte/vkui@6/dist/css/vkui.css" />
+    <script src="https://unpkg.com/@vkontakte/vkjs@0.2/dist/vkjs.min.js"></script>
+    <script src="https://unpkg.com/@vkontakte/vk-bridge@2/dist/bridge.min.js"></script>
+    <!-- Дополнительные шрифты -->
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            background: var(--vkui--color_background);
+            font-family: var(--vkui--font_family_base);
+            padding: 16px;
+        }
+        .form-container {
+            max-width: 500px;
+            margin: 0 auto;
+        }
+        .vkuiFormItem {
+            margin-bottom: 16px;
+        }
+        .error-message {
+            color: var(--vkui--color_text_negative);
+            font-size: 13px;
+            margin-top: 6px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .success-toast {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            right: 20px;
+            background: var(--vkui--color_background_positive);
+            color: white;
+            padding: 12px;
+            border-radius: 12px;
+            text-align: center;
+            font-weight: 500;
+            z-index: 1000;
+            animation: fadeUp 0.3s ease;
+        }
+        @keyframes fadeUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .loader {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 0.6s linear infinite;
+            margin-right: 8px;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+
+<script>
+    // Инициализация VK Bridge
+    const vkBridge = window.vkBridge || (window.VKWebApp && window.VKWebApp.send) ? window.VKWebApp : null;
+    if (vkBridge) {
+        vkBridge.send('VKWebAppInit', {});
+    }
+
+    // Firebase config (та же)
+    const firebaseConfig = {
+        apiKey: "AIzaSyBX9OQXZBk4D6mDEblilZOIS9WZckSi_J0",
+        authDomain: "xfgdtdg.firebaseapp.com",
+        projectId: "xfgdtdg",
+        storageBucket: "xfgdtdg.firebasestorage.app",
+        messagingSenderId: "985023051490",
+        appId: "1:985023051490:web:a5ddd1e0d099eede08d0bb"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    // Получение данных пользователя VK (если доступно)
+    let vkUser = { id: null, first_name: '', last_name: '', photo: '' };
+    async function getVKUser() {
+        if (!vkBridge) return;
+        try {
+            const userData = await vkBridge.send('VKWebAppGetUserInfo', {});
+            vkUser.id = userData.id;
+            vkUser.first_name = userData.first_name;
+            vkUser.last_name = userData.last_name;
+            vkUser.photo = userData.photo_200;
+            // Предзаполним имя, если поле пустое
+            const nameInput = document.getElementById('g_name');
+            if (nameInput && !nameInput.value) {
+                nameInput.value = `${userData.first_name} ${userData.last_name}`;
+            }
+        } catch (e) {
+            console.warn('VK user info error', e);
+        }
+    }
+
+    // Рендер формы через VKUI компоненты (динамически)
+    function renderForm() {
+        const root = document.getElementById('root');
+        root.innerHTML = `
+            <div class="form-container">
+                <div style="margin-bottom: 24px; text-align: center;">
+                    <h2 style="display: flex; align-items: center; justify-content: center; gap: 8px;">
+                        <span role="img" aria-label="paw">🐾</span> Запись на груминг
+                        <span role="img" aria-label="scissors">✂️</span>
+                    </h2>
+                    <div style="color: var(--vkui--color_text_secondary);">Студия профессионального ухода</div>
+                </div>
+
+                <div class="vkuiFormItem">
+                    <div class="vkuiFormField">
+                        <label class="vkuiFormField__label">Ваше имя</label>
+                        <input type="text" id="g_name" class="vkuiInput" placeholder="Иван Петров" autocomplete="name">
+                        <div id="error_name" class="error-message" style="display: none;">⚠️ Укажите ваше имя</div>
+                    </div>
+                </div>
+
+                <div class="vkuiFormItem">
+                    <div class="vkuiFormField">
+                        <label class="vkuiFormField__label">Телефон</label>
+                        <input type="tel" id="g_phone" class="vkuiInput" placeholder="+7 (999) 123-45-67" autocomplete="tel">
+                        <div id="error_phone" class="error-message" style="display: none;">⚠️ Введите корректный номер</div>
+                    </div>
+                </div>
+
+                <div class="vkuiFormItem">
+                    <div class="vkuiFormField">
+                        <label class="vkuiFormField__label">Дата</label>
+                        <input type="date" id="g_date" class="vkuiInput">
+                        <div id="error_date" class="error-message" style="display: none;">⚠️ Выберите дату</div>
+                    </div>
+                </div>
+
+                <div class="vkuiFormItem">
+                    <div class="vkuiFormField">
+                        <label class="vkuiFormField__label">Время</label>
+                        <input type="time" id="g_time" class="vkuiInput">
+                        <div id="error_time" class="error-message" style="display: none;">⚠️ Выберите время</div>
+                    </div>
+                </div>
+
+                <div class="vkuiFormItem">
+                    <div class="vkuiFormField">
+                        <label class="vkuiFormField__label">Порода / услуга</label>
+                        <textarea id="g_comment" class="vkuiTextarea" rows="3" placeholder="Например: пудель, комплексный груминг"></textarea>
+                    </div>
+                </div>
+
+                <button id="submitBtn" class="vkuiButton vkuiButton--size-l vkuiButton--mode-primary" style="width:100%;">Записаться</button>
+            </div>
+        `;
+
+        // Добавим стили для vkuiInput, vkuiTextarea (т.к. не все классы подключены)
+        const style = document.createElement('style');
+        style.textContent = `
+            .vkuiInput, .vkuiTextarea {
+                width: 100%;
+                padding: 12px;
+                border-radius: 12px;
+                border: 1px solid var(--vkui--color_field_border);
+                background: var(--vkui--color_field_background);
+                font-size: 16px;
+                font-family: inherit;
+                transition: 0.2s;
+            }
+            .vkuiInput:focus, .vkuiTextarea:focus {
+                outline: none;
+                border-color: var(--vkui--color_accent);
+                box-shadow: 0 0 0 2px rgba(0, 102, 255, 0.2);
+            }
+            .vkuiButton {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 8px;
+                padding: 12px 20px;
+                border-radius: 12px;
+                font-weight: 500;
+                background: var(--vkui--color_accent);
+                color: white;
+                border: none;
+                cursor: pointer;
+                font-size: 16px;
+            }
+            .vkuiButton:active {
+                opacity: 0.8;
+            }
+        `;
+        document.head.appendChild(style);
+
+        // Навесить обработчики
+        attachHandlers();
+        setMinDate();
+        getVKUser(); // подставить имя
+    }
+
+    function attachHandlers() {
+        const nameInput = document.getElementById('g_name');
+        const phoneInput = document.getElementById('g_phone');
+        const dateInput = document.getElementById('g_date');
+        const timeInput = document.getElementById('g_time');
+        const commentInput = document.getElementById('g_comment');
+        const submitBtn = document.getElementById('submitBtn');
+
+        // Обработка ошибок и валидации
+        function validateForm() {
+            let isValid = true;
+            hideErrors();
+
+            const name = nameInput.value.trim();
+            if (name.length < 2) {
+                showError('error_name');
+                nameInput.style.borderColor = 'var(--vkui--color_stroke_negative)';
+                isValid = false;
+            }
+
+            const phone = phoneInput.value.trim();
+            const digits = phone.replace(/\D/g, '');
+            if (digits.length < 10) {
+                showError('error_phone');
+                phoneInput.style.borderColor = 'var(--vkui--color_stroke_negative)';
+                isValid = false;
+            }
+
+            const date = dateInput.value;
+            if (!date) {
+                showError('error_date');
+                dateInput.style.borderColor = 'var(--vkui--color_stroke_negative)';
+                isValid = false;
+            } else {
+                const selected = new Date(date);
+                const today = new Date();
+                today.setHours(0,0,0,0);
+                if (selected < today) {
+                    const errDiv = document.getElementById('error_date');
+                    errDiv.innerHTML = '⚠️ Дата не может быть в прошлом';
+                    showError('error_date');
+                    dateInput.style.borderColor = 'var(--vkui--color_stroke_negative)';
+                    isValid = false;
+                }
+            }
+
+            if (!timeInput.value) {
+                showError('error_time');
+                timeInput.style.borderColor = 'var(--vkui--color_stroke_negative)';
+                isValid = false;
+            }
+
+            return isValid;
+        }
+
+        function hideErrors() {
+            ['error_name','error_phone','error_date','error_time'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.style.display = 'none';
+            });
+            [nameInput, phoneInput, dateInput, timeInput].forEach(inp => {
+                if (inp) inp.style.borderColor = '';
+            });
+        }
+
+        function showError(id) {
+            const el = document.getElementById(id);
+            if (el) el.style.display = 'flex';
+        }
+
+        async function sendGroom() {
+            if (!validateForm()) return;
+
+            const btn = submitBtn;
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<span class="loader"></span> Отправка...';
+            btn.disabled = true;
+
+            const now = new Date();
+            const order = {
+                name: nameInput.value.trim(),
+                phone: phoneInput.value.trim(),
+                date: dateInput.value,
+                time: timeInput.value,
+                comment: commentInput.value.trim(),
+                createdDate: now.toLocaleDateString('ru-RU'),
+                createdTime: now.toLocaleTimeString('ru-RU'),
+                status: 'Новая',
+                source: 'VK Mini App',
+                vk_user_id: vkUser.id || null,
+                timestamp: firebase.database.ServerValue.TIMESTAMP
+            };
+
+            try {
+                await db.ref('orders').push(order);
+                // Показать уведомление через VK Bridge
+                if (vkBridge) {
+                    vkBridge.send('VKWebAppShowNotification', {
+                        text: '✅ Заявка отправлена! Мы свяжемся с вами в ближайшее время 🐾',
+                        buttons: [{ text: 'OK' }]
+                    });
+                }
+                // Тост-сообщение
+                showToast('Заявка успешно отправлена! Спасибо 😊');
+                // Очистить форму
+                nameInput.value = '';
+                phoneInput.value = '';
+                dateInput.value = '';
+                timeInput.value = '';
+                commentInput.value = '';
+                hideErrors();
+                setMinDate();
+            } catch (err) {
+                console.error(err);
+                showToast('Ошибка при отправке. Попробуйте позже.', true);
+            } finally {
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            }
+        }
+
+        function showToast(message, isError = false) {
+            const toast = document.createElement('div');
+            toast.className = 'success-toast';
+            toast.style.background = isError ? 'var(--vkui--color_background_negative)' : 'var(--vkui--color_background_positive)';
+            toast.innerText = message;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+
+        function setMinDate() {
+            const today = new Date();
+            const yyyy = today.getFullYear();
+            const mm = String(today.getMonth() + 1).padStart(2,'0');
+            const dd = String(today.getDate()).padStart(2,'0');
+            dateInput.min = `${yyyy}-${mm}-${dd}`;
+        }
+
+        submitBtn.onclick = sendGroom;
+
+        // Живая валидация
+        [nameInput, phoneInput, dateInput, timeInput].forEach(inp => {
+            inp.addEventListener('input', () => {
+                inp.style.borderColor = '';
+                const errId = `error_${inp.id.replace('g_','')}`;
+                const errDiv = document.getElementById(errId);
+                if (errDiv) errDiv.style.display = 'none';
+            });
+        });
+
+        // Маска телефона
+        phoneInput.addEventListener('input', function(e) {
+            let value = this.value.replace(/\D/g, '');
+            if (value.length > 11) value = value.slice(0,11);
+            let formatted = '';
+            if (value.length > 0) {
+                formatted = '+7';
+                if (value[0] === '7') value = value.substring(1);
+                if (value.length > 0) formatted += ' (' + value.substring(0,3);
+                if (value.length >= 4) formatted += ') ' + value.substring(3,6);
+                if (value.length >= 7) formatted += '-' + value.substring(6,8);
+                if (value.length >= 9) formatted += '-' + value.substring(8,10);
+                this.value = formatted;
+            } else {
+                this.value = '';
+            }
+        });
+    }
+
+    renderForm();
+</script>
+</body>
+</html>
